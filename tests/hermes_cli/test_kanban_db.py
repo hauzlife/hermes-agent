@@ -1409,6 +1409,21 @@ def test_link_tasks_no_dependency_wait_when_parent_done(kanban_home):
         assert "dependency_wait" not in kinds
 
 
+def test_prefix_based_task_id_generation(kanban_home):
+    """Tasks are created with PREFIX-NUM formatting based on board metadata or slug."""
+    with kbc.connect(board="mystelia") as conn:
+        t1 = kb.create_task(conn, title="Mystelia task 1", board="mystelia")
+        t2 = kb.create_task(conn, title="Mystelia task 2", board="mystelia")
+        assert t1.startswith("MYS-")
+        assert t2.startswith("MYS-")
+        assert int(t2.split("-")[1]) > int(t1.split("-")[1])
+
+    with kbc.connect(board="custom-pfx") as conn:
+        kb.write_board_metadata("custom-pfx", prefix="INFRA")
+        t_custom = kb.create_task(conn, title="Infra card", board="custom-pfx")
+        assert t_custom.startswith("INFRA-")
+
+
 def test_create_task_with_open_parent_emits_dependency_wait(kanban_home):
     """create-with-parents is the incident path: a card parked in todo behind an
     unfinished parent must carry the same dependency_wait as a link-time gate."""

@@ -194,7 +194,7 @@ def _insert_decomposed_child(
         child_ws_path = root_row["workspace_path"]
     else:
         child_ws_path = None
-    new_id = _new_task_id()
+    new_id = _new_task_id(conn=conn)
     body = child.get("body")
     conn.execute(
         "INSERT INTO tasks "

@@ -556,6 +556,7 @@ def read_board_metadata(board: Optional[str] = None) -> dict:
     meta: dict[str, Any] = {
         "slug": slug,
         "name": _default_board_display_name(slug),
+        "prefix": _slug_to_prefix(slug),
         "description": "",
         "icon": "",
         "color": "",
@@ -584,6 +585,7 @@ def write_board_metadata(
     board: Optional[str], *, name: Optional[str] = None, description: Optional[str] = None,
     icon: Optional[str] = None, color: Optional[str] = None, archived: Optional[bool] = None,
     default_workdir: Optional[str] = None, project_id: Optional[str] = None,
+    prefix: Optional[str] = None,
 ) -> dict:
     """Create/update ``board.json``; unmentioned fields are preserved, ``created_at``
     set on first write. ``project_id``/``default_workdir``: ``None`` = unchanged,
@@ -595,6 +597,9 @@ def write_board_metadata(
     meta.pop("db_path", None)
     if name is not None:
         meta["name"] = str(name).strip() or _default_board_display_name(slug)
+    if prefix is not None:
+        p_clean = re.sub(r"[^A-Z0-9]", "", str(prefix).strip().upper())
+        meta["prefix"] = p_clean or _slug_to_prefix(slug)
     for key, value in (("description", description), ("icon", icon), ("color", color)):
         if value is not None:
             meta[key] = str(value)
@@ -617,13 +622,13 @@ def write_board_metadata(
 def create_board(
     slug: str, *, name: Optional[str] = None, description: Optional[str] = None,
     icon: Optional[str] = None, color: Optional[str] = None, default_workdir: Optional[str] = None,
-    project_id: Optional[str] = None,
+    project_id: Optional[str] = None, prefix: Optional[str] = None,
 ) -> dict:
     """Create board dir + DB + metadata (``mkdir -p`` semantics: existing board returns its metadata)."""
     normed = _require_slug(slug)
     meta = write_board_metadata(
         normed, name=name, description=description, icon=icon, color=color,
-        default_workdir=default_workdir, project_id=project_id,
+        default_workdir=default_workdir, project_id=project_id, prefix=prefix,
     )
     # Touch the DB so list_boards() sees it immediately.
     init_db(board=normed)
@@ -1083,10 +1088,53 @@ CREATE INDEX IF NOT EXISTS idx_notify_task           ON kanban_notify_subs(task_
 
 # --- ID generation ---
 
-def _new_task_id() -> str:
-    """``t_`` + 4 hex bytes (collision ~1e-3 at 100k tasks; 2 bytes would hit 50%
-    by 10k). Idempotency belongs to ``idempotency_key``, not id uniqueness."""
-    return "t_" + secrets.token_hex(4)
+def _slug_to_prefix(slug: str) -> str:
+    """Derive an uppercase ticket prefix from a board slug.
+    Examples:
+      mystelia -> MYS
+      hot-telegram -> HOT
+      infra-ops -> INFRA
+      engineering -> ENG
+      social -> SOC
+    """
+    clean = re.sub(r"[^a-zA-Z0-9_-]", "", slug or "").strip("-_")
+    if not clean:
+        return "TSK"
+    primary = clean.split("-")[0].split("_")[0]
+    if len(primary) <= 4:
+        return primary.upper()
+    return primary[:3].upper() if len(primary) >= 6 else primary.upper()
+
+
+def _new_task_id(conn: Optional[sqlite3.Connection] = None, board: Optional[str] = None) -> str:
+    """Generate a ticket id formatted as PREFIX-NUM (e.g. MYS-231, INFRA-101),
+    falling back to t_<hex> if database context is not available."""
+    if conn is None:
+        return "t_" + secrets.token_hex(4)
+    try:
+        b_meta = _board_meta_for(board)
+        custom_prefix = (b_meta.get("prefix") or "").strip().upper()
+        if custom_prefix:
+            prefix = re.sub(r"[^A-Z0-9]", "", custom_prefix)
+        else:
+            slug = b_meta.get("slug") or _slug_or_default(board)
+            prefix = _slug_to_prefix(slug)
+
+        # Atomic sequence per board: find max existing numeric suffix for this prefix
+        row = conn.execute(
+            "SELECT id FROM tasks WHERE id LIKE ? ORDER BY LENGTH(id) DESC, id DESC LIMIT 20",
+            (f"{prefix}-%",),
+        ).fetchall()
+        max_num = 0
+        for r in row:
+            tid = r["id"]
+            if "-" in tid:
+                suffix = tid.split("-", 1)[1]
+                if suffix.isdigit():
+                    max_num = max(max_num, int(suffix))
+        return f"{prefix}-{max_num + 1}"
+    except Exception:
+        return "t_" + secrets.token_hex(4)
 
 
 def _claimer_id() -> str:
@@ -1342,7 +1390,7 @@ def create_task(
 
     # Retry once on the extremely unlikely id collision.
     for attempt in range(2):
-        task_id = _new_task_id()
+        task_id = _new_task_id(conn=conn, board=board)
         try:
             # allow_nested: graph builders compose create_task under one outer
             # commit so the dispatcher never sees a half-built graph.
