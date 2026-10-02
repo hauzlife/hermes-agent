@@ -102,6 +102,7 @@ _BOARD_SPECS = [
     _cmd("create", [
         _arg("slug", help="Board slug (kebab-case, e.g. atm10-server)"),
         _arg("--name", help="Human-readable display name (defaults to Title Case of slug)"),
+        _arg("--prefix", help="Ticket prefix for task IDs (e.g. MYS, INFRA, ENG). Defaults to derived slug prefix."),
         _arg("--description", help="Optional description"),
         _arg("--icon", help="Optional emoji or single-character icon for the dashboard"),
         _arg("--color", help="Optional hex color (e.g. '#8b5cf6') for the dashboard"),

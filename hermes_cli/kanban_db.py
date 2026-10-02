@@ -2658,8 +2658,8 @@ def _verify_created_cards(
     return verified, phantom
 
 
-# Matches ``kanban_create`` (12 hex) and ``_new_task_id`` (8 hex) ids; 8+ for forward compat.
-_TASK_ID_PROSE_RE = re.compile(r"\bt_[a-f0-9]{8,}\b")
+# Matches both legacy ``kanban_create`` (8+ hex) and modern ``PREFIX-123`` ids.
+_TASK_ID_PROSE_RE = re.compile(r"\b([A-Z0-9]{2,12}-\d+|t_[a-f0-9]{8,})\b")
 
 
 def _scan_prose_for_phantom_ids(conn: sqlite3.Connection, text: str) -> list[str]:

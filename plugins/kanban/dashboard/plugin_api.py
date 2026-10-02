@@ -1291,6 +1291,7 @@ def model_options():
 class CreateBoardBody(BaseModel):
     slug: str
     name: Optional[str] = None
+    prefix: Optional[str] = None
     description: Optional[str] = None
     icon: Optional[str] = None
     color: Optional[str] = None
@@ -1302,6 +1303,7 @@ class CreateBoardBody(BaseModel):
 
 class RenameBoardBody(BaseModel):
     name: Optional[str] = None
+    prefix: Optional[str] = None
     description: Optional[str] = None
     icon: Optional[str] = None
     color: Optional[str] = None
@@ -1327,7 +1329,13 @@ class ImportBoardBody(BaseModel):
 
 def _board_display_kwargs(p: BaseModel) -> dict[str, Any]:
     """Display-metadata fields shared by create_board / write_board_metadata."""
-    return {"name": p.name, "description": p.description, "icon": p.icon, "color": p.color}
+    return {
+        "name": getattr(p, "name", None),
+        "prefix": getattr(p, "prefix", None),
+        "description": getattr(p, "description", None),
+        "icon": getattr(p, "icon", None),
+        "color": getattr(p, "color", None),
+    }
 
 
 def _resolve_project(ref: Optional[str]) -> tuple[Optional[str], Optional[str], Optional[str]]:
