@@ -93,7 +93,7 @@ _HOST_MANDATED_API_MODES = {
 
 # codex_app_server is opt-in: hand the whole turn to a `codex app-server` subprocess (Codex's own
 # tool runtime), gated on `model.openai_runtime == "codex_app_server"` AND provider in {openai, openai-codex}.
-_VALID_API_MODES = {"chat_completions", "codex_responses", "anthropic_messages", "bedrock_converse", "codex_app_server"}
+_VALID_API_MODES = {"chat_completions", "codex_responses", "anthropic_messages", "bedrock_converse", "codex_app_server", "grokbot"}
 
 
 def _detect_api_mode_for_url(base_url: str) -> Optional[str]:
@@ -514,6 +514,7 @@ _POOL_ENTRY_SIMPLE_MODES: Dict[str, tuple] = {
     "qwen-oauth": ("chat_completions", DEFAULT_QWEN_BASE_URL), "openrouter": ("chat_completions", OPENROUTER_BASE_URL),
     "minimax-oauth": ("anthropic_messages", lambda: getattr(PROVIDER_REGISTRY.get("minimax-oauth"), "inference_base_url", "")),
     "xai": ("codex_responses", ""),
+    "grokbot": ("grokbot", "https://api2.cursor.sh"),
 }
 
 
@@ -781,6 +782,11 @@ _OAUTH_RUNTIME_PROVIDERS: Dict[str, _OAuthRuntimeSpec] = {
                                    "last_refresh", "Auto-detected xAI OAuth provider but credentials failed", DEFAULT_XAI_OAUTH_BASE_URL),
     "qwen-oauth": _OAuthRuntimeSpec(lambda: resolve_qwen_runtime_credentials(), "chat_completions", "qwen-cli",
                                     "expires_at_ms", "Qwen OAuth credentials failed"),
+    "grokbot": _OAuthRuntimeSpec(
+        lambda: __import__("hermes_cli.grokbot_oauth", fromlist=["resolve_grokbot_runtime_credentials"]).resolve_grokbot_runtime_credentials(),
+        "grokbot", "grokbot-session", "expires_at",
+        "Grok Bot session missing/invalid at ~/.grokbot/session.json",
+        "https://api2.cursor.sh"),
 }
 
 

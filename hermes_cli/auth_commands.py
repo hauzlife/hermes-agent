@@ -27,7 +27,7 @@ from hermes_cli.secret_prompt import masked_secret_prompt
 
 
 # Providers that support OAuth login in addition to API keys.
-_OAUTH_CAPABLE_PROVIDERS = {"anthropic", "nous", "openai-codex", "xai-oauth", "qwen-oauth", "minimax-oauth", "openrouter"}
+_OAUTH_CAPABLE_PROVIDERS = {"anthropic", "nous", "openai-codex", "xai-oauth", "qwen-oauth", "minimax-oauth", "openrouter", "grokbot"}
 # ...and default to it when ``--type`` is omitted. OpenRouter stays API-key-first: the documented
 # ``hermes auth add openrouter --api-key sk-or-...`` must keep working with no ``--type``.
 _OAUTH_DEFAULT_PROVIDERS = _OAUTH_CAPABLE_PROVIDERS - {"openrouter"}
@@ -81,7 +81,8 @@ def _resolve_custom_provider_input(raw: str) -> str | None:
 
 _PROVIDER_ALIASES = {
     "or": "openrouter", "open-router": "openrouter", "grok-oauth": "xai-oauth",
-    "xai-oauth": "xai-oauth", "x-ai-oauth": "xai-oauth", "xai-grok-oauth": "xai-oauth"}
+    "xai-oauth": "xai-oauth", "x-ai-oauth": "xai-oauth", "xai-grok-oauth": "xai-oauth",
+    "grok-bot": "grokbot", "grokbot": "grokbot"}
 
 
 def _normalize_provider(provider: str) -> str:
@@ -412,10 +413,46 @@ def auth_add_command(args) -> None:
 
 
 def _add_credential(args, provider: str, pool, requested_type: str) -> PooledCredential:
+    if provider == "grokbot" and requested_type == AUTH_TYPE_API_KEY:
+        raise SystemExit(
+            "Grok Bot uses PKCE, not an API key. Run: hermes auth add grokbot --type oauth"
+        )
     if requested_type == AUTH_TYPE_API_KEY:
         return _add_api_key_credential(args, provider, pool)
     if provider == "nous":
         return _add_nous_oauth_credential(args, provider)
+    if provider == "grokbot":
+        from hermes_cli.grokbot_oauth import existing_session, run_pkce_login, session_label
+
+        sess = existing_session()
+        imported = False
+        if sess is not None:
+            imported = True
+            print("Using existing ~/.grokbot/session.json (PKCE).")
+        else:
+            try:
+                sess = run_pkce_login(
+                    open_browser=not getattr(args, "no_browser", False),
+                    timeout=float(getattr(args, "timeout", None) or 300.0),
+                )
+            except RuntimeError as exc:
+                raise SystemExit(str(exc)) from None
+        label = (getattr(args, "label", None) or "").strip() or session_label(sess)
+        entry = PooledCredential(
+            provider=provider,
+            id=uuid.uuid4().hex[:6],
+            label=label,
+            auth_type=AUTH_TYPE_OAUTH,
+            priority=0,
+            source=f"{SOURCE_MANUAL}:grokbot_pkce",
+            access_token=sess.get("accessToken") or "",
+            refresh_token=sess.get("refreshToken") or "",
+            base_url="https://api2.cursor.sh",
+        )
+        entry = pool.add_entry(entry)
+        verb = "Imported" if imported else "Added"
+        print(f'{verb} {provider} PKCE credential #{len(pool.entries())}: "{entry.label}"')
+        return entry
 
     spec = _OAUTH_ADD_SPECS.get(provider)
     if spec is None:

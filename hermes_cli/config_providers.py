@@ -51,7 +51,10 @@ _API_MODE_ALIASES = {
     "anthropic-messages": "anthropic_messages",
     "messages": "anthropic_messages",
     "bedrock": "bedrock_converse",
-    "bedrock-converse": "bedrock_converse"}
+    "bedrock-converse": "bedrock_converse",
+    "connect_inference": "grokbot",
+    "grok-bot": "grokbot",
+    "grokbot": "grokbot"}
 
 _FALSE_WORDS = frozenset({"false", "0", "no", "off"})
 _TRUE_WORDS = frozenset({"true", "1", "yes", "on"})

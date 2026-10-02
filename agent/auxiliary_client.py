@@ -182,6 +182,9 @@ def _create_openai_client(*, api_key: str, base_url: str, **kwargs: Any) -> Any:
     if _aux_probe_active():
         # Availability probe: resolved credentials/base_url are the answer.
         return _AuxProbeClientStub(api_key=api_key, base_url=base_url)
+    from agent.transports.grokbot import grokbot_runtime_active, build_grokbot_client
+    if grokbot_runtime_active(base_url=base_url):
+        return build_grokbot_client()
     kwargs = {**_openai_http_client_kwargs(base_url), **kwargs}
     _apply_required_codex_headers(kwargs, access_token=api_key, base_url=base_url)
     # Hermes owns aux retry/fallback policy; the SDK default (max_retries=2) would triple

@@ -182,6 +182,9 @@ _REGISTRY_ROWS: Tuple[Any, ...] = (
     ProviderConfig(
         "xai-oauth", "xAI Grok OAuth (SuperGrok / Premium+)", "oauth_external",
         inference_base_url=DEFAULT_XAI_OAUTH_BASE_URL),
+    ProviderConfig(
+        "grokbot", "Grok Bot (Cursor sand)", "oauth_external",
+        inference_base_url="https://api2.cursor.sh"),
     ProviderConfig("qwen-oauth", "Qwen OAuth", "oauth_external", inference_base_url=DEFAULT_QWEN_BASE_URL),
     ("lmstudio", "LM Studio", "http://127.0.0.1:1234/v1", ("LM_API_KEY",), "LM_BASE_URL"),
     ("copilot", "GitHub Copilot", DEFAULT_GITHUB_MODELS_BASE_URL,
@@ -1451,6 +1454,7 @@ _PROVIDER_ALIASES: Dict[str, str] = {
     "x-ai": "xai", "x.ai": "xai", "grok": "xai",
     "xai-oauth": "xai-oauth", "x-ai-oauth": "xai-oauth",
     "grok-oauth": "xai-oauth", "xai-grok-oauth": "xai-oauth",
+    "grok-bot": "grokbot", "grokbot": "grokbot",
     "kimi": "kimi-coding", "kimi-for-coding": "kimi-coding", "moonshot": "kimi-coding",
     "kimi-cn": "kimi-coding-cn", "moonshot-cn": "kimi-coding-cn",
     "step": "stepfun", "stepfun-coding-plan": "stepfun",

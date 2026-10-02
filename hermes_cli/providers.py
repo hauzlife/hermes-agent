@@ -33,6 +33,11 @@ HERMES_OVERLAYS: Dict[str, HermesOverlay] = {
                                   base_url_override="https://chatgpt.com/backend-api/codex"),
     "openai-api": HermesOverlay(transport="codex_responses", base_url_override="https://api.openai.com/v1",
                                 base_url_env_var="OPENAI_BASE_URL"),
+    "grokbot": HermesOverlay(
+        transport="grokbot",
+        auth_type="oauth_external",
+        base_url_override="https://api2.cursor.sh",
+    ),
     "xai-oauth": HermesOverlay(transport="codex_responses", auth_type="oauth_external",
                                base_url_override="https://api.x.ai/v1", base_url_env_var="XAI_BASE_URL"),
     "qwen-oauth": HermesOverlay(auth_type="oauth_external", base_url_override="https://portal.qwen.ai/v1",
@@ -115,6 +120,7 @@ class ProviderDef:
 _ALIAS_GROUPS: Dict[str, Tuple[str, ...]] = {
     "openrouter": ("openai",), "zai": ("glm", "z-ai", "z.ai", "zhipu"), "xai": ("x-ai", "x.ai", "grok"),
     "xai-oauth": ("grok-oauth", "xai-oauth", "x-ai-oauth", "xai-grok-oauth"),
+    "grokbot": ("grok-bot", "grokbot", "connect_inference"),
     "nvidia": ("nim", "nvidia-nim", "build-nvidia", "nemotron"),
     "kimi-for-coding": ("kimi", "kimi-coding", "kimi-coding-cn", "moonshot"),
     "stepfun": ("step", "stepfun-coding-plan"), "minimax-cn": ("minimax-china", "minimax_cn"),
@@ -148,6 +154,7 @@ _LABEL_OVERRIDES: Dict[str, str] = {
     "nebius-token-factory": "Nebius Token Factory", "tencent-tokenplan": "Tencent TokenPlan", "lmstudio": "LM Studio",
     "custom": "Custom endpoint", "bedrock": "AWS Bedrock", "vertex": "Google Vertex AI", "ollama-cloud": "Ollama Cloud",
     "xai-oauth": "xAI Grok OAuth (SuperGrok / Premium+)",
+    "grokbot": "Grok Bot (Cursor sand / api2.cursor.sh)",
 }
 
 
@@ -156,6 +163,7 @@ _LABEL_OVERRIDES: Dict[str, str] = {
 TRANSPORT_TO_API_MODE: Dict[str, str] = {
     "openai_chat": "chat_completions", "anthropic_messages": "anthropic_messages",
     "codex_responses": "codex_responses", "bedrock_converse": "bedrock_converse",
+    "grokbot": "grokbot",
 }
 
 

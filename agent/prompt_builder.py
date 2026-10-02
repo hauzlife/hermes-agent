@@ -359,7 +359,7 @@ TOOL_USE_ENFORCEMENT_GUIDANCE = (
 
 # "muse" = Meta Muse Spark: on defaults it answers in prose with 0 tool calls and the turn closes on
 # finish_reason=stop (#96550).
-TOOL_USE_ENFORCEMENT_MODELS = ("gpt", "codex", "gemini", "gemma", "grok", "glm", "qwen", "deepseek", "muse")
+TOOL_USE_ENFORCEMENT_MODELS = ("gpt", "codex", "gemini", "gemma", "grok", "glm", "qwen", "deepseek", "muse", "gemini")
 
 # Models that receive OPENAI_MODEL_EXECUTION_GUIDANCE when agent.execution_guidance is "auto" (agentic-eval
 # traces showed the same failure modes; Muse Spark stops after a chat-only turn on defaults). Gemini/Gemma get
