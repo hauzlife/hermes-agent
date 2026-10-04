@@ -4,6 +4,7 @@
 /venv.stale.runtime-*/
 /bin/
 /.hermes-runtime/
+/tree/
 /_pycache/
 *.pyc*
 __pycache__/

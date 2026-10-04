@@ -710,6 +710,15 @@ def _handle_complete(args: dict, **kw) -> str:
         # actually reachable — see _goal_judge_available for why an unavailable judge fails open.
         task = kb.get_task(conn, tid)
         _goal_gate("kanban_complete", task, tid, (summary or result or "").strip())
+        if task and task.status in {"running", "ready"} and task.completion_contract and task.completion_contract != "local-only":
+            published_pr = metadata.get("published_pr") if isinstance(metadata, dict) else None
+            if not published_pr:
+                return tool_error(
+                    f"kanban_complete blocked: task {tid} operates under git contract {task.completion_contract!r} "
+                    "and requires a Pull Request and code review per GIT_WORKFLOW.md. "
+                    "Push your branch (`git push -u origin HEAD`), create a GitHub PR via `gh pr create --fill`, "
+                    "and submit review via `kanban_request_review(summary=..., metadata={'published_pr': '<pr_url>'}, reviewer='reviewer')`."
+                )
         try:
             ok = kb.complete_task(
                 conn, tid, result=result, summary=summary, metadata=metadata,

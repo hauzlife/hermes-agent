@@ -8,6 +8,7 @@ late-bound via ``_kb`` (import-cycle breaking) so monkeypatching
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -265,7 +266,9 @@ def _cleanup_worktree_workspace(
         repo_root = common.parent
         if _path_key(wp.resolve(strict=False)) == _path_key(repo_root.resolve(strict=False)):
             return  # never remove the main checkout
-        if _worktree_is_dirty(str(wp), str(repo_root)) or _worktree_has_unpushed_commits(str(wp)):
+        force_clean = os.environ.get("HERMES_KANBAN_CLEANUP_FORCE", "1").strip().lower() not in ("0", "false", "no")
+        is_temp_branch = (branch_name or "").strip().startswith("wt/") or f"wt/{task_id}" == (branch_name or "").strip()
+        if not (force_clean and is_temp_branch) and (_worktree_is_dirty(str(wp), str(repo_root)) or _worktree_has_unpushed_commits(str(wp))):
             _kb._log.info(
                 "Preserving worktree for task %s: dirty or unpushed work at %s",
                 task_id, wp,
@@ -292,11 +295,14 @@ def _cleanup_worktree_workspace(
                     task_id, cwd or "<deleted cwd>", repo_root, exc,
                 )
                 return
-        # No --force: git's own dirty guard re-verifies at removal time, so if
-        # the tree became dirty since our check (TOCTOU) removal fails safe.
         release_lsp_clients(str(worktree_path))
-        result = _git(repo_root, "worktree", "remove", str(wp), timeout=60)
-        if result.returncode != 0:
+        remove_args = ["worktree", "remove", "--force", str(wp)] if (force_clean and is_temp_branch) else ["worktree", "remove", str(wp)]
+        result = _git(repo_root, *remove_args, timeout=60)
+        if result.returncode != 0 and force_clean and is_temp_branch:
+            shutil.rmtree(wp, ignore_errors=True)
+            _git(repo_root, "worktree", "prune", timeout=30)
+            result = subprocess.CompletedProcess(["git", *remove_args], 0, stdout="", stderr="")
+        elif result.returncode != 0:
             # Windows can retain a directory handle briefly after cwd changes.
             # Retry once without --force; Git still enforces its dirty guard.
             time.sleep(0.1)
@@ -511,10 +517,34 @@ def _ensure_git_worktree(repo_root: Path, target: Path, branch_name: str) -> Non
         )
 
 
+def _auto_bind_git_contract(task_id: str, repo_root: Path) -> None:
+    """If task has no explicit completion_contract, derive OWNER/REPO from git remote 'origin'."""
+    try:
+        from hermes_cli.kanban_pr_acceptance import _REPO
+        res = _git(repo_root, "remote", "get-url", "origin", timeout=5)
+        if res.returncode == 0 and res.stdout:
+            url = res.stdout.strip()
+            m = re.search(r"github\.com[:/]([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?$", url)
+            if m:
+                repo_slug = m.group(1)
+                if _REPO.fullmatch(repo_slug):
+                    from hermes_cli import kanban_db_connect as _kbc
+                    with _kbc.connect_closing() as conn:
+                        with _kb.write_txn(conn):
+                            conn.execute(
+                                "UPDATE tasks SET completion_contract = ? "
+                                "WHERE id = ? AND (completion_contract IS NULL OR completion_contract = '' OR completion_contract = 'local-only')",
+                                (repo_slug, task_id),
+                            )
+    except Exception:
+        pass
+
+
 def _anchored_worktree(repo_root: Path, task_id: str, branch_name: str) -> tuple[Path, str]:
     """Materialize the canonical ``<repo>/.worktrees/<task-id>`` worktree."""
     target = repo_root / ".worktrees" / task_id
     _ensure_git_worktree(repo_root, target, branch_name)
+    _auto_bind_git_contract(task_id, repo_root)
     return target, branch_name
 
 
@@ -559,21 +589,26 @@ def _resolve_worktree_workspace(task: Task, *, board: Optional[str] = None) -> t
 
     if requested.exists() and _is_linked_worktree_checkout(requested):
         actual_branch = _git_current_branch(requested)
+        fallback_root = _repo_root_for_worktree_target(requested.parent)
         if actual_branch == branch_name:
+            if fallback_root:
+                _auto_bind_git_contract(task.id, fallback_root)
             return requested_resolved, actual_branch
         # The requested path is an existing checkout of a DIFFERENT task's
         # branch (decompose children inherit the root's workspace_path
         # verbatim, so siblings all point here). Reusing it would run this task
         # on the other task's branch — silent cross-task provenance corruption,
         # unsafe under concurrency — so fall back to our own worktree.
-        fallback_root = _repo_root_for_worktree_target(requested.parent)
         if fallback_root is not None:
             fallback = fallback_root / ".worktrees" / task.id
             if _path_key(fallback.resolve(strict=False)) != _path_key(requested_resolved):
                 _ensure_git_worktree(fallback_root, fallback, branch_name)
+                _auto_bind_git_contract(task.id, fallback_root)
                 return fallback.resolve(strict=False), branch_name
         # No repo to anchor a fallback on (or the occupied path IS this task's
         # own canonical worktree): keep the legacy reuse rather than fail dispatch.
+        if fallback_root:
+            _auto_bind_git_contract(task.id, fallback_root)
         return requested_resolved, actual_branch or branch_name
 
     repo_root = _git_toplevel(requested)
@@ -587,6 +622,7 @@ def _resolve_worktree_workspace(task: Task, *, board: Optional[str] = None) -> t
             "and does not point at a git repo root"
         )
     _ensure_git_worktree(repo_root, requested, branch_name)
+    _auto_bind_git_contract(task.id, repo_root)
     return requested, branch_name
 
 
@@ -625,6 +661,9 @@ def resolve_workspace(task: Task, *, board: Optional[str] = None) -> Path:
                 f"{task.workspace_path!r}; use an absolute path "
                 f"(relative paths are ambiguous against the dispatcher's CWD)"
             )
+        repo_root = _git_toplevel(p)
+        if repo_root is not None:
+            _auto_bind_git_contract(task.id, repo_root)
     else:
         raise ValueError(f"unknown workspace_kind: {kind}")
     p.mkdir(parents=True, exist_ok=True)

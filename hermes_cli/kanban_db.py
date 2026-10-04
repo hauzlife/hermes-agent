@@ -1300,6 +1300,71 @@ def _normalize_task_skills(skills: Optional[Iterable[str]]) -> Optional[list[str
     return cleaned
 
 
+def _has_active_sovereign_directive() -> bool:
+    try:
+        from pathlib import Path
+        directive_path = Path.home() / ".hermes" / "sovereign_directive.md"
+        if not directive_path.exists():
+            return False
+        content = directive_path.read_text(encoding="utf-8")
+        for line in content.splitlines():
+            line = line.strip()
+            if line.startswith("- **Status**:") or line.startswith("Status:"):
+                return "ACTIVE" in line.upper()
+        return False
+    except Exception:
+        return False
+
+
+def _check_sovereign_governance(conn: sqlite3.Connection, title: str, priority: int,
+                                created_by: Optional[str], parents: tuple[str, ...],
+                                board: Optional[str]) -> None:
+    # 1. Exempt human, dashboard, CLI, tests, or unspecified callers
+    exempt_creators = {None, "", "user", "human", "dashboard", "cli", "test", "tester"}
+    if created_by in exempt_creators or (isinstance(created_by, str) and created_by.startswith("test")):
+        return
+
+    # 2. Exempt emergency / SRE / incident cards
+    title_upper = title.upper()
+    is_emergency = any(tag in title_upper for tag in ["[INCIDENT", "[P0]", "[BUG]", "[ALERT]", "[SRE]", "[CRASH]", "[REGRESSION]"]) or priority >= 10
+    is_sre = created_by in {"site-reliability-engineer", "sre-grafana-cron", "infra-sentinel"}
+    if is_emergency or is_sre:
+        return
+
+    # Count current active tasks on this board
+    try:
+        cur = conn.execute("SELECT COUNT(*) FROM tasks WHERE status IN ('ready', 'running', 'todo')")
+        row = cur.fetchone()
+        active_count = row[0] if row else 0
+    except Exception:
+        active_count = 0
+
+    # 3. Child task (parents present)
+    if parents:
+        if active_count >= 25:
+            raise ValueError(
+                f"[SOVEREIGN_GUARD] Anti-flood guard: Board '{board or 'default'}' has reached the active child task limit (25 tasks). "
+                f"Complete existing subtasks before spawning more."
+            )
+        return
+
+    # 4. Root task (no parents) from an automated agent:
+    # Must have an active Sovereign Directive
+    if not _has_active_sovereign_directive():
+        raise ValueError(
+            f"[SOVEREIGN_GUARD] Task creation in vacuum rejected for profile '{created_by}'. "
+            f"No active Sovereign Directive in ~/.hermes/sovereign_directive.md. "
+            f"Idle state is nominal capital preservation."
+        )
+
+    # Active directive exists: enforce anti-flood limit of 15 root tasks
+    if active_count >= 15:
+        raise ValueError(
+            f"[SOVEREIGN_GUARD] Anti-flood guard: Board '{board or 'default'}' has reached the active task limit (15 tasks). "
+            f"Complete existing work before creating new tasks."
+        )
+
+
 def create_task(
     conn: sqlite3.Connection, *, title: str, body: Optional[str] = None,
     assignee: Optional[str] = None, created_by: Optional[str] = None,
@@ -1378,6 +1443,10 @@ def create_task(
         ).fetchone()
         if row:
             return row["id"]
+
+    _check_sovereign_governance(conn, title=title, priority=priority,
+                                created_by=created_by, parents=parents,
+                                board=board)
 
     now = int(time.time())
 

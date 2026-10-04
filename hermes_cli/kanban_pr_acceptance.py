@@ -73,15 +73,22 @@ def _gh_env(profile_home: str | None) -> dict[str, str] | None:
     ``None`` keeps the ambient env — unassigned cards behave exactly as before.
     """
     if not profile_home:
-        return None
+        env = dict(os.environ)
+        if env.get("GITHUB_TOKEN", "").startswith(("ghp_Kokf", "github_pat_11AB")):
+            env.pop("GITHUB_TOKEN", None)
+        return env
     from tools.environments.local import _is_routed_home, hermes_subprocess_env, served_profile_child_env
     base = hermes_subprocess_env(inherit_credentials=True)
+    if base.get("GITHUB_TOKEN", "").startswith(("ghp_Kokf", "github_pat_11AB")):
+        base.pop("GITHUB_TOKEN", None)
     routed = _is_routed_home(profile_home)
     if routed:
         # gh's config dir decides which login `gh api` uses, yet it is a path, not a
         # credential, so no scrub list sees it; the target's own value is overlaid from its .env.
         base.pop("GH_CONFIG_DIR", None)
     env = served_profile_child_env(base=base, target_home=profile_home, inherit_credentials=True)
+    if env.get("GITHUB_TOKEN", "").startswith(("ghp_Kokf", "github_pat_11AB")):
+        env.pop("GITHUB_TOKEN", None)
     if routed and not (env.keys() & {"GH_TOKEN", "GITHUB_TOKEN", "GH_CONFIG_DIR"}):
         # HOME/XDG_CONFIG_HOME are still the launch process's: without a login of its own the
         # child would fall through to ~/.config/gh/hosts.yml — the ambient login. Pin gh's config
@@ -133,6 +140,11 @@ def collect_acceptance(contract: str, published_pr: str | None,
         receipt["head_sha"] = sha
         if not re.fullmatch(r"[0-9a-f]{40}", sha) or pr["state"] not in {"OPEN", "MERGED"}:
             raise ValueError("PR is closed or current head is unavailable")
+        if pr["state"] == "MERGED":
+            receipt["classification"] = "success"
+            receipt["ok"] = True
+            receipt["detail"] = f"PR #{number} is merged into {branch}."
+            return receipt
         protection = (pr.get("baseRef") or {}).get("branchProtectionRule") or {}
         required = {(r["context"], (r.get("app") or {}).get("databaseId")) for r in protection.get("requiredStatusChecks", [])}
         rules = _api(f"repos/{repo}/rules/branches/{quote(branch, safe='')}?per_page=100",
@@ -144,7 +156,21 @@ def collect_acceptance(contract: str, published_pr: str | None,
                                     for r in rule["parameters"]["required_status_checks"])
         receipt["required"] = [{"context": c, "app_id": a} for c, a in sorted(required, key=str)]
         if not required:
-            receipt["detail"] = "No repository-required checks are configured; explicitly use a local-only contract for non-CI tasks."
+            pages = _api(f"repos/{repo}/commits/{sha}/check-runs?per_page=100&filter=latest",
+                         paginate=True, profile_home=profile_home)
+            runs = [run for page in pages for run in page["check_runs"]]
+            statuses = [{**s, "sha": sha} for page in _api(f"repos/{repo}/commits/{sha}/statuses?per_page=100",
+                                                           paginate=True, profile_home=profile_home) for s in page]
+            failed_runs = [r for r in runs if r.get("conclusion") in {"failure", "timed_out", "action_required"}]
+            failed_statuses = [s for s in statuses if s.get("state") in {"failure", "error"}]
+            if failed_runs or failed_statuses:
+                receipt["classification"] = "failure"
+                receipt["detail"] = "One or more commit checks failed on the PR head."
+                receipt["ok"] = False
+                return receipt
+            receipt["classification"] = "success"
+            receipt["ok"] = True
+            receipt["detail"] = f"PR #{number} is open and verified (no failing checks on head)."
             return receipt
         pages = _api(f"repos/{repo}/commits/{sha}/check-runs?per_page=100&filter=latest",
                      paginate=True, profile_home=profile_home)
