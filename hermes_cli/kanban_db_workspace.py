@@ -518,15 +518,27 @@ def _ensure_git_worktree(repo_root: Path, target: Path, branch_name: str) -> Non
 
 
 def _auto_bind_git_contract(task_id: str, repo_root: Path) -> None:
-    """If task has no explicit completion_contract, derive OWNER/REPO from git remote 'origin'."""
+    """If task has no explicit completion_contract, derive OWNER/REPO from git remote 'origin' or first available remote."""
     try:
         from hermes_cli.kanban_pr_acceptance import _REPO
+        url = ""
         res = _git(repo_root, "remote", "get-url", "origin", timeout=5)
         if res.returncode == 0 and res.stdout:
             url = res.stdout.strip()
-            m = re.search(r"github\.com[:/]([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?$", url)
+        if not url:
+            remotes_res = _git(repo_root, "remote", timeout=5)
+            if remotes_res.returncode == 0 and remotes_res.stdout:
+                for rem in remotes_res.stdout.split():
+                    r_res = _git(repo_root, "remote", "get-url", rem, timeout=5)
+                    if r_res.returncode == 0 and r_res.stdout:
+                        url = r_res.stdout.strip()
+                        break
+        if url:
+            m = re.search(r"github\.com[:/]([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)", url)
             if m:
                 repo_slug = m.group(1)
+                if repo_slug.endswith(".git"):
+                    repo_slug = repo_slug[:-4]
                 if _REPO.fullmatch(repo_slug):
                     from hermes_cli import kanban_db_connect as _kbc
                     with _kbc.connect_closing() as conn:
